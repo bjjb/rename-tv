@@ -1,0 +1,65 @@
+#!/usr/bin/env ruby -w
+# -*- coding: UTF-8 -*-
+
+# TV Show Renaming script
+#
+# Downloads the episode guide from epguides.com (for the show passed as the
+# first argument), and then renames all the files in the current directory which
+# match the common S01E01-style naming convention. Pass a single file as the
+# second argument to just rename that file.
+require 'open-uri'
+
+unless $show = ARGV[0]
+  puts <<-HELP
+    You need to give a TV show name (quoted, if necessary), and I'll rename all
+    the SnnEnn files in this directory.
+  HELP
+  exit 1
+end
+
+
+$episodes = %r{<pre>(.*)</pre>}m
+$episode = %r{(\d+)\s+(\d+)-(\d+)\s*(.*?)\s*<a.*?href=['"]([^'"]+)['"].*?>(.+?)</a>}
+$filename = %r{S(\d+)E(\d+).*\.([^.]+)$}i
+
+def episodes!(show = $show)
+  episodes = open("http://epguides.com/#{show}").read
+  episodes = episodes.match($episodes)[1]
+  episodes = episodes.split("\r\n")
+  episodes = episodes.map(&:strip).reject(&:empty?)
+  episodes.map do |episode|
+    { :sequence => $1.to_i, :season => $2.to_i, :episode => $3.to_i,
+      :date => Time.parse($4), :link => $5, :title => $6
+    } if episode =~ $episode
+  end.compact
+end
+
+def episodes(show = $show)
+  (@episodes ||= {})[show] ||= episodes!(show)
+end
+
+def filename(f, show = $show)
+  return f unless f =~ $filename
+  dir = File.dirname(File.expand_path(f))
+  season, episode, ext = $1.to_i, $2.to_i, $3
+  title = episodes(show).find do |ep|
+    ep[:season] == season and ep[:episode] == episode
+  end[:title]
+  filename = "%02d%02d-%s.%s" % [season, episode, title, ext]
+  File.join(dir, filename)
+end
+
+def rename(f, show = $show)
+  old = File.expand_path(f)
+  new = filename(f)
+  File.rename(old, new)
+end
+
+if ARGV[1].nil?
+  Dir["*.*"].each do |f|
+    rename(f, $show)
+  end
+else
+  rename(ARGV[1], $show) 
+end
+# vi:ft=ruby
